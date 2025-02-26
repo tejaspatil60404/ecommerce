@@ -1,30 +1,47 @@
 from django.db import models
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.conf import settings
 
-# Create your models here.
+# Custom User Manager
+class CustomUserManager(BaseUserManager):
+    def create_user(self, phone, password=None, **extra_fields):
+        if not phone:
+            raise ValueError("Phone number is required")
+        user = self.model(phone=phone, **extra_fields)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
 
-from django.contrib.auth.models import AbstractUser
-from django.db import models
+    def create_superuser(self, phone, password=None, **extra_fields):
+        extra_fields.setdefault("is_staff", True)
+        extra_fields.setdefault("is_superuser", True)
+        return self.create_user(phone, password, **extra_fields)
 
-class User(AbstractUser):
-    email = models.EmailField(unique=True)
-    phone = models.CharField(max_length=15, blank=True, null=True)
-    address = models.TextField(blank=True, null=True)
+# Custom User Model
+class User(AbstractBaseUser, PermissionsMixin):
+    email = models.EmailField(unique=True, blank=True, null=True)
+    phone = models.CharField(max_length=10, unique=True)
+    
+    # User-related fields
+    is_active = models.BooleanField(default=True)
+    is_staff = models.BooleanField(default=False)
 
-    # Fix the clash by setting related_name
+    objects = CustomUserManager()
+
     groups = models.ManyToManyField(
-        "auth.Group", related_name="User_groups", blank=True
+        "auth.Group", related_name="user_groups", blank=True
     )
     user_permissions = models.ManyToManyField(
-        "auth.Permission", related_name="User_permissions", blank=True
+        "auth.Permission", related_name="user_permissions", blank=True
     )
 
-    # Remove unnecessary fields
-    is_staff = None  
-    is_superuser = None
+    USERNAME_FIELD = "phone"
+    REQUIRED_FIELDS = ["email"]
 
     def __str__(self):
-        return self.username
+        return self.phone
 
+# Category Model
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField()
@@ -32,6 +49,7 @@ class Category(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+# Product Model
 class Product(models.Model):
     name = models.CharField(max_length=255)
     description = models.TextField()
@@ -42,57 +60,67 @@ class Product(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+# Cart Model
 class Cart(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     total_price = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     created_at = models.DateTimeField(auto_now_add=True)
 
+# Cart Item Model
 class CartItem(models.Model):
     cart = models.ForeignKey(Cart, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.IntegerField()
     subtotal_price = models.DecimalField(max_digits=10, decimal_places=2)
 
+# Order Model
 class Order(models.Model):
     STATUS_CHOICES = [
-        ('Pending', 'Pending'),
-        ('Shipped', 'Shipped'),
-        ('Delivered', 'Delivered'),
-        ('Canceled', 'Canceled'),
+        ('pending', 'Pending'),
+        ('processing', 'Processing'),
+        ('shipped', 'Shipped'),
+        ('delivered', 'Delivered'),
+        ('canceled', 'Canceled'),
     ]
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     total_price = models.DecimalField(max_digits=10, decimal_places=2)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Pending')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+# Payment Model
+class Payment(models.Model):
+    order = models.OneToOneField(Order, on_delete=models.CASCADE, related_name="payment")
+    payment_method = models.CharField(max_length=50)  # e.g., 'Credit Card', 'PayPal'
+    transaction_id = models.CharField(max_length=100, unique=True)
+    payment_status = models.BooleanField(default=False)  # True = Paid, False = Not Paid
+    created_at = models.DateTimeField(auto_now_add=True)
+
+# Order Item Model
 class OrderItem(models.Model):
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.IntegerField()
     price = models.DecimalField(max_digits=10, decimal_places=2)
 
-class Payment(models.Model):
-    order = models.ForeignKey(Order, on_delete=models.CASCADE)
-    payment_method = models.CharField(max_length=50)
-    payment_status = models.CharField(max_length=20, choices=[('Pending', 'Pending'), ('Completed', 'Completed'), ('Failed', 'Failed')])
-    transaction_id = models.CharField(max_length=100, unique=True)
-    payment_date = models.DateTimeField(auto_now_add=True)
-
+# Review Model
 class Review(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     rating = models.IntegerField()
     comment = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
 
+# Wishlist Model
 class Wishlist(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
 
+# Shipping Address Model
 class ShippingAddress(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     order = models.ForeignKey(Order, on_delete=models.CASCADE)
     address_line_1 = models.CharField(max_length=255)
     address_line_2 = models.CharField(max_length=255, blank=True, null=True)
@@ -101,6 +129,7 @@ class ShippingAddress(models.Model):
     pincode = models.CharField(max_length=10)
     created_at = models.DateTimeField(auto_now_add=True)
 
+# Coupon Model
 class Coupon(models.Model):
     code = models.CharField(max_length=50, unique=True)
     discount_percentage = models.DecimalField(max_digits=5, decimal_places=2)
@@ -108,8 +137,9 @@ class Coupon(models.Model):
     valid_to = models.DateTimeField()
     is_active = models.BooleanField(default=True)
 
+# Notification Model
 class Notification(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     message = models.TextField()
     is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
