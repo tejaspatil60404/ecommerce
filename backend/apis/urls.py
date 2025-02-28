@@ -13,13 +13,15 @@ from .views import (
     UserOrdersView, CancelOrderView, UpdateProfileView, ProductSearchView,
     CheckoutView, LogoutView
 )
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from .views import RegisterView, ProfileView, LogoutView
 
 urlpatterns = [
-    # Authentication APIs
     path('auth/register/', RegisterView.as_view(), name='register'),
-    path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),  # JWT login
+    path('auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),  # Refresh token
     path('auth/profile/', ProfileView.as_view(), name='profile'),
-    path('auth/token/', obtain_auth_token, name='api_token_auth'),  # DRF built-in token authentication
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
 
     # Product APIs
     path('products/', ProductListView.as_view(), name='product-list'),

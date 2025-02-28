@@ -23,9 +23,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = 'django-insecure-ilgqi^2cs*3ndax#hh(54100lbkn(#3!trmebf(^eq9(4^ut80'
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['127.0.0.1']
 
 # Application definition
 
@@ -131,8 +131,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.TokenAuthentication',  # Enable Token Auth
-        'rest_framework.authentication.SessionAuthentication',  # Optional
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ),
 }
 
@@ -140,5 +139,14 @@ REST_FRAMEWORK = {
 
 AUTH_USER_MODEL = 'apis.User'  # Replace 'your_app_name' with your actual app name
 
-INSTALLED_APPS += ['corsheaders']
+INSTALLED_APPS += ['corsheaders',
+                   'rest_framework_simplejwt.token_blacklist'
+                ]
 CORS_ALLOW_ALL_ORIGINS = True  # (or specify allowed origins)
+
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=60),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=1),
+}

@@ -24,9 +24,15 @@ from .serializers import ProfileUpdateSerializer
 from django.contrib.auth import get_user_model
 from rest_framework.authtoken.models import Token
 
+# Register API (Generates Token on Signup)
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.response import Response
+from rest_framework import generics, permissions
+from django.contrib.auth import get_user_model
+from .serializers import UserSerializer
+
 User = get_user_model()
 
-# Register API (Generates Token on Signup)
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -34,8 +40,12 @@ class RegisterView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         response = super().create(request, *args, **kwargs)
         user = User.objects.get(phone=response.data['phone'])
-        token, _ = Token.objects.get_or_create(user=user)
-        return Response({"user": response.data, "token": token.key})
+        refresh = RefreshToken.for_user(user)
+        return Response({
+            "user": response.data,
+            "refresh": str(refresh),
+            "access": str(refresh.access_token),
+        })
 
 # Login API (Generates Token)
 class LoginView(APIView):
@@ -47,19 +57,28 @@ class LoginView(APIView):
             
             user = get_object_or_404(User, phone=phone)
             if user.check_password(password):
-                token, _ = Token.objects.get_or_create(user=user)
+                # Delete old token (if exists)
+                Token.objects.filter(user=user).delete()  
+                # Create new token
+                token, _ = Token.objects.get_or_create(user=user)  
+                
                 return Response({"token": token.key})
             else:
                 return Response({"error": "Invalid Credentials"}, status=400)
         return Response(serializer.errors, status=400)
 
 # Profile API (Get User Info)
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import permissions
+
 class ProfileView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         user = request.user
-        return Response({"username": user.username, "email": user.email})
+        return Response({"phone": user.phone, "email": user.email})
+
 
 from rest_framework import generics
 from .models import Product
@@ -209,10 +228,28 @@ class CheckoutView(APIView):
             return Response({'error': 'Order not found or already paid'}, status=status.HTTP_400_BAD_REQUEST)
 
 from rest_framework.authtoken.models import Token
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from rest_framework.authtoken.models import Token
+from rest_framework import permissions, status
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, permissions
 
 class LogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        request.auth.delete()  # Deletes the token
-        return Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
+        try:
+            refresh_token = request.data["refresh"]
+            token = RefreshToken(refresh_token)
+            token.blacklist()  # Blacklist the token so it cannot be used again
+            return Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
+        except Exception as e:
+            return Response({"error": "Invalid token or already logged out"}, status=status.HTTP_400_BAD_REQUEST)

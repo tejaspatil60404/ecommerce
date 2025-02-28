@@ -32,7 +32,6 @@ class CartSerializer(serializers.ModelSerializer):
         model = Cart
         fields = '__all__'
 
-
 # Order Serializer
 class OrderSerializer(serializers.ModelSerializer):
     class Meta:
