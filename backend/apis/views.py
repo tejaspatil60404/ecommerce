@@ -1,255 +1,248 @@
-from django.shortcuts import render
-
-# Create your views here.
-
-from django.contrib.auth.models import User
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import update_last_login
+from rest_framework import generics, status, permissions
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from django.contrib.auth import authenticate
-from django.shortcuts import get_object_or_404
-from rest_framework import generics, permissions
-from rest_framework.authtoken.models import Token
-from .serializers import UserSerializer, LoginSerializer
-from .models import User  # Assuming you have a User model with phone number
-
-from django.contrib.auth import authenticate
-from django.shortcuts import get_object_or_404
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework import generics, permissions
-from rest_framework.authtoken.models import Token
-from .serializers import UserSerializer, LoginSerializer
-
-from .serializers import ProfileUpdateSerializer
-from django.contrib.auth import get_user_model
-from rest_framework.authtoken.models import Token
-
-# Register API (Generates Token on Signup)
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.response import Response
-from rest_framework import generics, permissions
-from django.contrib.auth import get_user_model
-from .serializers import UserSerializer
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from .models import User, Cart, Wishlist, Product, Order, Payment, ShippingAddress, Notification
+from .serializers import (
+    RegisterSerializer, LoginSerializer, ProfileSerializer, ProfileUpdateSerializer,
+    CartSerializer, WishlistSerializer, CartUpdateSerializer, WishlistUpdateSerializer,
+    ProductSerializer, OrderSerializer, PaymentSerializer, ShippingAddressSerializer, NotificationSerializer
+)
 
-User = get_user_model()
-
+# User Registration
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
-    serializer_class = UserSerializer
+    serializer_class = RegisterSerializer
 
-    def create(self, request, *args, **kwargs):
-        response = super().create(request, *args, **kwargs)
-        user = User.objects.get(phone=response.data['phone'])
-        refresh = RefreshToken.for_user(user)
-        return Response({
-            "user": response.data,
-            "refresh": str(refresh),
-            "access": str(refresh.access_token),
-        })
-
-# Login API (Generates Token)
+# User Login
 class LoginView(APIView):
     def post(self, request):
         serializer = LoginSerializer(data=request.data)
         if serializer.is_valid():
-            phone = serializer.validated_data['phone']
-            password = serializer.validated_data['password']
-            
-            user = get_object_or_404(User, phone=phone)
-            if user.check_password(password):
-                # Delete old token (if exists)
-                Token.objects.filter(user=user).delete()  
-                # Create new token
-                token, _ = Token.objects.get_or_create(user=user)  
-                
-                return Response({"token": token.key})
-            else:
-                return Response({"error": "Invalid Credentials"}, status=400)
-        return Response(serializer.errors, status=400)
+            user = authenticate(phone=serializer.validated_data['phone'], password=serializer.validated_data['password'])
+            if user:
+                refresh = RefreshToken.for_user(user)
+                update_last_login(None, user)
+                return Response({
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token),
+                }, status=status.HTTP_200_OK)
+            return Response({"error": "Invalid Credentials"}, status=status.HTTP_401_UNAUTHORIZED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# Profile API (Get User Info)
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import permissions
-
-class ProfileView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        user = request.user
-        return Response({"phone": user.phone, "email": user.email})
-
-
-from rest_framework import generics
-from .models import Product
-from .serializers import ProductSerializer
-
-# List All Products
-class ProductListView(generics.ListAPIView):
-    queryset = Product.objects.all()
-    serializer_class = ProductSerializer
-
-# Get Single Product Detail
-class ProductDetailView(generics.RetrieveAPIView):
-    queryset = Product.objects.all()
-    serializer_class = ProductSerializer
-    lookup_field = 'id'
-
-from .models import Cart
-from .serializers import CartSerializer
-from rest_framework import status
-
-# View Cart Items
-class CartView(generics.ListAPIView):
-    serializer_class = CartSerializer
-
-    def get_queryset(self):
-        return Cart.objects.filter(user=self.request.user)
-
-# Add Item to Cart
-class CartAddView(generics.CreateAPIView):
-    serializer_class = CartSerializer
-
-# Update Cart Item
-class CartUpdateView(generics.UpdateAPIView):
-    queryset = Cart.objects.all()
-    serializer_class = CartSerializer
-    lookup_field = 'id'
-
-# Remove Item from Cart
-class CartRemoveView(generics.DestroyAPIView):
-    queryset = Cart.objects.all()
-    lookup_field = 'id'
-
-from .models import Order
-from .serializers import OrderSerializer
-
-# Create Order
-class OrderCreateView(generics.CreateAPIView):
-    serializer_class = OrderSerializer
-
-# View Order Details
-class OrderDetailView(generics.RetrieveAPIView):
-    queryset = Order.objects.all()
-    serializer_class = OrderSerializer
-    lookup_field = 'id'
-
-from .models import Wishlist
-from .serializers import WishlistSerializer
-
-# View Wishlist
-class WishlistView(generics.ListAPIView):
-    serializer_class = WishlistSerializer
-
-    def get_queryset(self):
-        return Wishlist.objects.filter(user=self.request.user)
-
-# Add Item to Wishlist
-class WishlistAddView(generics.CreateAPIView):
-    serializer_class = WishlistSerializer
-
-# Remove Item from Wishlist
-class WishlistRemoveView(generics.DestroyAPIView):
-    queryset = Wishlist.objects.all()
-    lookup_field = 'id'
-
-from rest_framework import generics, permissions
-from .models import Order
-from .serializers import OrderSerializer
-
-class UserOrdersView(generics.ListAPIView):
-    serializer_class = OrderSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return Order.objects.filter(user=self.request.user)
-
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework import status
-
-class CancelOrderView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, id):
-        try:
-            order = Order.objects.get(id=id, user=request.user)
-            if order.status in ['shipped', 'delivered']:
-                return Response({'error': 'Cannot cancel a shipped or delivered order'}, status=status.HTTP_400_BAD_REQUEST)
-
-            order.status = 'canceled'
-            order.save()
-            return Response({'message': 'Order canceled successfully'}, status=status.HTTP_200_OK)
-        except Order.DoesNotExist:
-            return Response({'error': 'Order not found'}, status=status.HTTP_404_NOT_FOUND)
-
-
-class UpdateProfileView(generics.UpdateAPIView):
-    queryset = User.objects.all()
-    serializer_class = ProfileUpdateSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_object(self):
-        return self.request.user
-
-from .models import Product
-from .serializers import ProductSerializer
-from rest_framework import filters
-
-class ProductSearchView(generics.ListAPIView):
-    queryset = Product.objects.all()
-    serializer_class = ProductSerializer
-    filter_backends = [filters.SearchFilter]
-    search_fields = ['name', 'description', 'category__name']
-
-from rest_framework import status
-from .models import Payment
-
-class CheckoutView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        order_id = request.data.get('order_id')
-        payment_method = request.data.get('payment_method')
-        transaction_id = request.data.get('transaction_id')
-
-        try:
-            order = Order.objects.get(id=order_id, user=request.user, status='pending')
-            payment = Payment.objects.create(
-                order=order,
-                payment_method=payment_method,
-                transaction_id=transaction_id,
-                payment_status=True
-            )
-            order.status = 'processing'  # Mark order as processing after payment
-            order.save()
-            return Response({'message': 'Payment successful, order processing'}, status=status.HTTP_201_CREATED)
-        except Order.DoesNotExist:
-            return Response({'error': 'Order not found or already paid'}, status=status.HTTP_400_BAD_REQUEST)
-
-from rest_framework.authtoken.models import Token
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from rest_framework.authtoken.models import Token
-from rest_framework import permissions, status
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
-from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status, permissions
-
+# User Logout
 class LogoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         try:
-            refresh_token = request.data["refresh"]
+            refresh_token = request.data.get("refresh")
+            if not refresh_token:
+                return Response({"error": "Refresh token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
             token = RefreshToken(refresh_token)
-            token.blacklist()  # Blacklist the token so it cannot be used again
+            token.blacklist()
             return Response({"message": "Logged out successfully"}, status=status.HTTP_200_OK)
-        except Exception as e:
+        except Exception:
             return Response({"error": "Invalid token or already logged out"}, status=status.HTTP_400_BAD_REQUEST)
+
+# Profile Management
+class ProfileView(generics.RetrieveUpdateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ProfileUpdateSerializer
+
+    def get_object(self):
+        return self.request.user
+
+class UpdateProfileView(generics.UpdateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ProfileUpdateSerializer
+
+    def get_object(self):
+        return self.request.user
+
+# Product Management
+class ProductListView(generics.ListCreateAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+
+class ProductDetailView(generics.RetrieveUpdateDestroyAPIView):
+    queryset = Product.objects.all()
+    serializer_class = ProductSerializer
+    lookup_field = 'id'
+
+# Cart Management
+class CartView(generics.ListCreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CartSerializer
+
+    def get_queryset(self):
+        return Cart.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        cart, created = Cart.objects.get_or_create(user=self.request.user)
+        serializer.instance = cart
+
+class CartUpdateView(generics.RetrieveUpdateDestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CartUpdateSerializer
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Cart.objects.filter(user=self.request.user)
+
+class CartAddView(generics.CreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CartSerializer
+
+class CartRemoveView(generics.DestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = CartSerializer
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Cart.objects.filter(user=self.request.user)
+
+# Wishlist Management
+class WishlistView(generics.ListCreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WishlistSerializer
+
+    def get_queryset(self):
+        return Wishlist.objects.filter(user=self.request.user)
+
+class WishlistUpdateView(generics.RetrieveUpdateDestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WishlistUpdateSerializer
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Wishlist.objects.filter(user=self.request.user)
+
+class WishlistAddView(generics.CreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WishlistSerializer
+
+class WishlistRemoveView(generics.DestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = WishlistSerializer
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Wishlist.objects.filter(user=self.request.user)
+
+# Order Management
+class OrderView(generics.ListCreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OrderSerializer
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
+
+class OrderDetailView(generics.RetrieveUpdateDestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OrderSerializer
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
+
+class OrderCreateView(generics.CreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OrderSerializer
+
+class CancelOrderView(generics.UpdateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OrderSerializer
+    lookup_field = 'id'
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(status="Cancelled")
+
+# Payment Management
+class PaymentView(generics.ListCreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PaymentSerializer
+
+class PaymentDetailView(generics.RetrieveAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = PaymentSerializer
+    lookup_field = 'id'
+
+# Shipping Address Management
+class ShippingAddressView(generics.ListCreateAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ShippingAddressSerializer
+
+class ShippingAddressDetailView(generics.RetrieveUpdateDestroyAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = ShippingAddressSerializer
+    lookup_field = 'id'
+
+# Notifications
+class NotificationView(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        return Notification.objects.filter(user=self.request.user)
+
+# Product Search
+class ProductSearchView(generics.ListAPIView):
+    serializer_class = ProductSerializer
+
+    def get_queryset(self):
+        query = self.request.query_params.get('q', None)
+        if query:
+            return Product.objects.filter(name__icontains=query)
+        return Product.objects.all()
+
+# Checkout
+class CheckoutView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        cart_items = Cart.objects.filter(user=request.user)
+        if not cart_items.exists():
+            return Response({"error": "Cart is empty"}, status=status.HTTP_400_BAD_REQUEST)
+
+        order = Order.objects.create(user=request.user, status="Pending")
+        for item in cart_items:
+            order.products.add(item.product)
+        cart_items.delete()
+
+        return Response({"message": "Order placed successfully"}, status=status.HTTP_201_CREATED)
+
+class UserOrdersView(generics.ListAPIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = OrderSerializer
+
+    def get_queryset(self):
+        return Order.objects.filter(user=self.request.user).order_by('-created_at')

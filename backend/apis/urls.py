@@ -49,5 +49,3 @@ urlpatterns = [
     path('checkout/', CheckoutView.as_view(), name='checkout'),
     path('auth/logout/', LogoutView.as_view(), name='logout'),
 ]
-
-
